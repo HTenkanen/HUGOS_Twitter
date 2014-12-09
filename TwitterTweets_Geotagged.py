@@ -186,9 +186,6 @@ def main():
                     print "Too many retries.. Quitting.."
                     raise error
                 
-
-                print "Too many retries.. Quitting.."
-                    raise error
            
 
 if __name__ == '__main__':
