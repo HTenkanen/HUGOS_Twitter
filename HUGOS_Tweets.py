@@ -14,7 +14,6 @@ class StdOutListener(StreamListener):
         self.outFolder = None
         self.startNewFile()
 
-
     def closeFile(self):
         self.output.close()
 
@@ -53,7 +52,6 @@ class StdOutListener(StreamListener):
                 status.user.location = status.user.location.replace('\n', '')
 
             else:
-
                 self.out.writerow((status.created_at,status.user.utc_offset,
                                       status.user.name,status.user.id_str,status.user.description,
                                       status.coordinates.values()[1][0],status.coordinates.values()[1][1],status.text,
