@@ -12,6 +12,8 @@ class StdOutListener(StreamListener):
         self.aika = None
         self.nimi = None
         self.outFolder = None
+        self.output = None
+        self.out = None
         self.startNewFile()
 
     def closeFile(self):
