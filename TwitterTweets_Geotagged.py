@@ -173,6 +173,9 @@ def main():
                 #Wait for few seconds and try again
                 time.sleep(2)
                 pass
+            elif "'ascii' codec can't decode" in error:
+                print error
+                time.sleep(0.2)
             else:
                 print "Got a new exception.."
                 print error
