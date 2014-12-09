@@ -9,27 +9,41 @@ class StdOutListener(StreamListener):
     def __init__(self, api = None):
         self.api = api or API()
         self.counter = 0
+        self.aika = None
+        self.nimi = None
+        self.outFolder = None
+        self.startNewFile()
+        self.writeArcGisConf()
+
+
+    def closeFile(self):
+        self.output.close()
+
+    def startNewFile(self):
         self.aika = time.strftime('%Y%m%d-%H%M%S')
 
-        self.nimi = "Test_Geotagged_TwitterData_" + self.aika + '.txt'
+        self.nimi = "Extended_Geotagged_TwitterData_" + self.aika + '.txt'
         self.outFolder = r'C:\HY-Data\HENTENKA\Twitter\Geotagged_2014_05'
 
         self.outPath = os.path.join(self.outFolder, self.nimi)
         self.Schema = os.path.join(self.outFolder,'schema.ini')
 
+        # Open output stream
         self.output = open(self.outPath, 'w')
 
+        # Set up unicode writer
         self.out = unicodecsv.writer(self.output, encoding='utf-8', delimiter='\t')
-        self.output.write("timestamp¤username¤userID¤lon¤lat¤text¤retweeted_cnt¤language¤followers_cnt¤timeZone\n")
 
+        # Write header
+        self.out.writerow(("timestamp","utc_offset","username", "userID", "description", "lon", "lat", "text", "reply_to_tweet", "reply_to_user", "retweeted_cnt", "favorite_cnt", "language", "followers_cnt", "friends_cnt", "tweets_cnt", "timeZone", "location", "place"))
+
+    def writeArcGisConf(self):
         self.config = ConfigParser.RawConfigParser()
         self.config.add_section(self.nimi)
         self.config.set(self.nimi, 'Format', 'Delimited(\xa4)')
 
         with open(self.Schema, 'a') as configfile:
             self.config.write(configfile)
-        
-            
                    
     def on_status(self, status):
 
@@ -39,33 +53,27 @@ class StdOutListener(StreamListener):
             if status.coordinates is None or int(status.coordinates.values()[1][0]) == 0 and int(status.coordinates.values()[1][1]) == 0:
                 pass
             if "\n" in status.text:
-                pass
+                status.text = status.text.replace('\n', '')
+            if "\n" in status.user.description:
+                status.user.description = status.user.description.replace('\n', '')
+            if "\n" in status.user.location:
+                status.user.location = status.user.location.replace('\n', '')
+
             else:
 
-                ketju = status.created_at,"¤",status.user.name,"¤",status.user.id_str,"¤",status.coordinates.values()[1][0],"¤",status.coordinates.values()[1][1],"¤",status.text,"¤",status.retweet_count,"¤",status.user.lang,"¤",status.user.followers_count,"¤",status.user.time_zone
-                info = "".join(map(str, ketju))
-                #print info + "\n"
-                self.output.write(info + "\n")
+                self.out.writerow((status.created_at,status.user.utc_offset,
+                                      status.user.name,status.user.id_str,status.user.description,
+                                      status.coordinates.values()[1][0],status.coordinates.values()[1][1],status.text,
+                                      status.in_reply_to_status_id_str,status.in_reply_to_user_id_str,status.retweet_count,status.favorite_count,
+                                      status.user.lang,status.user.followers_count,status.user.friends_count,status.user.statuses_count,
+                                      status.user.time_zone,status.user.location,status.place.name))
 
                 self.counter+=1
 
                 if self.counter >= 2000000:
-                    self.output.close()
-                    self.aika = time.strftime('%Y%m%d-%H%M%S')
-                    self.nimi = "Test_Geotagged_TwitterData_" + self.aika + '.txt'
-                    
-                    self.outPath = os.path.join(self.outFolder, self.nimi)
-                                        
-                    self.output = open(self.outPath, 'a')
-                    self.output.write("timestamp¤username¤userID¤lon¤lat¤text¤retweeted_cnt¤language¤followers_cnt¤timeZone\n")
-                    
-                    self.config = ConfigParser.RawConfigParser()
-                    self.config.add_section(self.nimi)
-                    self.config.set(self.nimi, 'Format', 'Delimited(\xa4)')
-
-                    with open(self.Schema, 'a') as configfile:
-                        self.config.write(configfile)
-                    
+                    self.closeFile()
+                    self.startNewFile()
+                    self.writeArcGisConf()
                     self.counter = 0
                                 
         except:
@@ -82,43 +90,7 @@ class StdOutListener(StreamListener):
         print >> sys.stderr, 'Timeout...'
         return True # Don't kill the stream
 
-    def error_handler(e, wait_period):
-        error = str(e)
 
-        if 'IncompleteRead' in error:
-            print "Got an 'IncompleteRead' exception.. Continuing.."
-            time.sleep(1)
-            return 2
-        elif 'Rate limit exceeded' in error:
-            #Wait for 15 minutes
-            print "\n\n\nRate limit exceeded..Sleeping for 15 minutes..\n\n\n"
-            time.sleep(60*15+3)
-            print "\n\n\nTrying to continue streaming..\n\n\n"
-            return 2
-        
-        elif 'Error 500' in error or 'Error 502' in error or 'Error 503' in error or 'Error 504' in error:
-            #Twitter has some problems of its own
-            #Wait for few seconds and try again
-            
-            if wait_period < 3600: #If wait period gets over an hour stop raise an error and stop
-                print "Got an Twitter server related exception.. Continuing in %s seconds.." % wait_period
-                
-                time.sleep(wait_period)
-                wait_period *= 1.5
-                return wait_period
-                
-            else:
-                print "Too many retries.. Quitting.."
-                raise e
-        else:
-            print "Got a new exception.."
-            print error
-            print "Stopping now.."
-            raise e
-
-        
-        
-    
 def main():
 
     consumer_key = '4Fm2aXPRXvvqcR2ZUnnhYw'
@@ -156,49 +128,68 @@ def main():
 
     
     wait_period = 2 #in seconds
+    maxRetries = 20
+    retries = 0
     
     while True:
         try:
             stream.filter(locations=searchArea) #, locations=[-180,-90,180,90])#(locations=[-180,-90,180,90]) #) track=["Obama"]locations=[-180,-90,180,90] track=["Arnold Schwarzenegger"] track=["Fukushima"]locations=[-180,-90,180,90]
+            retries = 0
         except Exception as e:
             error = str(e)
 
             if 'IncompleteRead' in error:
                 print "Got an 'IncompleteRead' exception.. Continuing.."
                 time.sleep(1)
-                return 2
+                pass
             elif 'Rate limit exceeded' in error:
                 #Wait for 15 minutes
                 print "\n\n\nRate limit exceeded..Sleeping for 15 minutes..\n\n\n"
                 time.sleep(60*15+3)
                 print "\n\n\nTrying to continue streaming..\n\n\n"
-                return 2
+                pass
+
+            elif 'Expecting value:' in error:
+                print "Got an 'JSONDecodeError'.. Continuing.."
+                time.sleep(1)
+                pass
+            elif "Unterminated string starting at" in error:
+                print "Got an 'JSONDecodeError'.. Continuing.."
+                time.sleep(1)
+                pass
+            elif "The read operation timed out" in error:
+                print "The read operation timed out.. Continuing.."
+                time.sleep(2)
+                pass
+            elif "Expecting property name enclosed in double quotes" in error:
+                time.sleep(1)
+                pass
+            elif "getaddrinfo failed" in error:
+                time.sleep(2)
+                pass
             
             elif 'Error 500' in error or 'Error 502' in error or 'Error 503' in error or 'Error 504' in error:
                 #Twitter has some problems of its own
                 #Wait for few seconds and try again
-                
-                if wait_period < 3600: #If wait period gets over an hour stop raise an error and stop
-                    print "Got an Twitter server related exception.. Continuing in %s seconds.." % wait_period
-                    
-                    time.sleep(wait_period)
-                    wait_period *= 1.5
-                    return wait_period
-                    
-                else:
-                    print "Too many retries.. Quitting.."
-                    raise e
+                time.sleep(2)
+                pass
             else:
                 print "Got a new exception.."
                 print error
-                print "Stopping now.."
-                raise e
 
+                retries+=1
+                if retries <= maxRetries: #If wait period gets over an hour stop raise an error and stop
+                    print "Amount of retries so far: %s/%s" % (retries, maxRetries)
+                    pass
+                                
+                else:
+                    print "Too many retries.. Quitting.."
+                    raise error
+                
 
-            #wait_period = l.error_handler(e, wait_period)
-                            
-                        
-                               
+                print "Too many retries.. Quitting.."
+                    raise error
+           
 
 if __name__ == '__main__':
     try:
